@@ -1,0 +1,15 @@
+{
+  "name": "translate-xlf",
+  "version": "1.0.2",
+  "description": "Автоматический переводчик файлов локализации в формате XLF (XML Localization Interchange File Format) с использованием Google Translate API.",
+  "license": "ISC",
+  "author": "yardim",
+  "type": "commonjs",
+  "main": "translate-xlf.js",
+  "bin": {
+    "translate-xlf": "./translate-xlf.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
