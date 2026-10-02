@@ -9,9 +9,22 @@ const CONFIG = {
   BATCH_SIZE: 5,
 };
 
+// Google отвечает 429 ("We're sorry... automated queries") на TLS-рукопожатие,
+// которое по умолчанию делает модуль https (без ALPN). С ALPN рукопожатие
+// совпадает с тем, что делает встроенный в Node fetch, и запросы проходят.
+const translateAgent = new https.Agent({
+  keepAlive: true,
+  ALPNProtocols: ['http/1.1'],
+});
+
+const ERROR_MARKER = '[ОШИБКА ПЕРЕВОДА]';
+// Цели, в которые предыдущие запуски записали ошибку вместо перевода
+const ERROR_MARKER_REGEX = /^\[ОШИБКА( ПЕРЕВОДА)?\]/;
+
 class XLFTranslator {
   constructor() {
     this.processedCount = 0;
+    this.failedCount = 0;
     this.totalCount = 0;
   }
 
@@ -99,6 +112,7 @@ class XLFTranslator {
       const request = https.get(
         url,
         {
+          agent: translateAgent,
           headers: {
             'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -112,6 +126,21 @@ class XLFTranslator {
           });
 
           response.on('end', () => {
+            if (response.statusCode !== 200) {
+              const body = data
+                .replace(/<style[\s\S]*?<\/style>/gi, '')
+                .replace(/<[^>]*>/g, ' ')
+                .replace(/\s+/g, ' ');
+              reject(
+                new Error(
+                  `HTTP ${response.statusCode} ${response.statusMessage}: ${body
+                    .trim()
+                    .substring(0, 200)}`,
+                ),
+              );
+              return;
+            }
+
             try {
               const result = JSON.parse(data);
               if (result && result[0] && result[0][0] && result[0][0][0]) {
@@ -153,7 +182,7 @@ class XLFTranslator {
           console.error(
             `Не удалось перевести после ${maxRetries} попыток: "${text}"`,
           );
-          return `[ОШИБКА ПЕРЕВОДА] ${text}`;
+          return `${ERROR_MARKER} ${text}`;
         }
 
         // Минимальная задержка при повторных попытках
@@ -515,6 +544,9 @@ class XLFTranslator {
           );
           unit.translatedText = translatedText;
           this.processedCount++;
+          if (translatedText.startsWith(ERROR_MARKER)) {
+            this.failedCount++;
+          }
           return unit;
         } catch (error) {
           console.error(
@@ -522,6 +554,7 @@ class XLFTranslator {
           );
           unit.translatedText = `[ОШИБКА] ${unit.source}`;
           this.processedCount++;
+          this.failedCount++;
           return unit;
         }
       }),
@@ -553,6 +586,9 @@ class XLFTranslator {
         if (!unit.hasTarget) {
           return true;
         }
+        if (ERROR_MARKER_REGEX.test(unit.target)) {
+          return true;
+        }
         if (unit.targetState === 'translated' || unit.targetState === 'final') {
           return false;
         }
@@ -581,6 +617,7 @@ class XLFTranslator {
 
       this.totalCount = elementsToProcess.length;
       this.processedCount = 0;
+      this.failedCount = 0;
 
       for (let i = 0; i < elementsToProcess.length; i += batchSize) {
         const batch = elementsToProcess.slice(i, i + batchSize);
@@ -612,8 +649,15 @@ class XLFTranslator {
 
       console.log('Перевод завершен!');
       console.log(
-        `Переведено элементов: ${this.processedCount}/${this.totalCount}`,
+        `Переведено элементов: ${this.processedCount - this.failedCount}/${
+          this.totalCount
+        }`,
       );
+      if (this.failedCount > 0) {
+        console.error(
+          `Ошибок перевода: ${this.failedCount}. Такие элементы помечены ${ERROR_MARKER} и будут переведены повторно при следующем запуске`,
+        );
+      }
     } catch (error) {
       console.error('Ошибка:', error.message);
       process.exit(1);

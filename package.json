@@ -1,6 +1,6 @@
 {
   "name": "translate-xlf",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Автоматический переводчик файлов локализации в формате XLF (XML Localization Interchange File Format) с использованием Google Translate API.",
   "license": "ISC",
   "author": "yardim",
